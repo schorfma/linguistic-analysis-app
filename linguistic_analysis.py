@@ -127,6 +127,7 @@ LANGUAGE_COLUMN, LANGUAGE_MODEL_COLUMN = streamlit.columns(2)
 
 MODEL_NAMES_BY_LANGUAGE: Dict[Text, List[Text]] = {
     "English": [
+        "en_core_web_md",
         "en_core_web_trf"
     ]
 }
