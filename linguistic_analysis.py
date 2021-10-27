@@ -238,3 +238,20 @@ for section_name, section in stqdm(
                 for pos_tag, pos_tag_features in section.features.items()
             }
         )
+
+        streamlit.subheader("Relative Distribution")
+
+        streamlit.write(
+            {
+                pos_tag: {
+                    feature_name: {
+                        key: (
+                            count / sum(feature_analysis.distribution.values())
+                        )
+                        for key, count in feature_analysis.distribution.items()
+                    }
+                    for feature_name, feature_analysis in pos_tag_features.items()
+                }
+                for pos_tag, pos_tag_features in section.features.items()
+            }
+        )
