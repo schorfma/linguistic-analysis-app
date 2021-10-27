@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "linguistic-analysis"
 version = "0.1.0"
-description = ""
+description = "A Linguistic Analysis App for analyzing certain linguistic aspects made in Streamlit using spaCy"
 authors = ["Martin Schorfmann <martin+gitlab@schorfma.de>"]
 
 [tool.poetry.dependencies]
