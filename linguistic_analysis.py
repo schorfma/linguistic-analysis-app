@@ -1,7 +1,7 @@
 
 import os
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Text, Tuple, Union
+from typing import Callable, Dict, List, Optional, Set, Text, Tuple, Union
 
 from pydantic import BaseModel
 from pydantic.error_wrappers import ValidationError
@@ -10,6 +10,7 @@ import srsly
 import spacy
 from spacy.language import Language
 from spacy.tokens import Doc, Token, MorphAnalysis
+from spacy.glossary import GLOSSARY as TAGS_GLOSSARY
 import streamlit
 from stqdm import stqdm
 
@@ -39,17 +40,29 @@ class Section(BaseModel):
         arbitrary_types_allowed: bool = True
 
 
-def analyze_morphological_features(doc: Doc, pos_tag: Text) -> Dict[Text, FeatureAnalysis]:
-    verbs: List[Token] = [
+POS_TAGS: List[Tuple[Text, Text]] = [  # https://universaldependencies.org/u/pos/index.html
+    ("ADJ", "Adjective"),
+    ("ADV", "Adverb"),
+    ("INTJ", "Interjection"),
+    ("NOUN", "Noun"),
+    ("PROPN", "Proper Noun"),
+    ("VERB", "Verb")
+]
+
+POS_TAGS_DICT = dict(POS_TAGS)
+
+
+def analyze_morphological_features(doc: Doc, pos_tag: Optional[Text] = None) -> Dict[Text, FeatureAnalysis]:
+    filtered_words: List[Token] = [
         token
         for token in doc
-        if token.pos_ == pos_tag
+        if (not pos_tag) or (token.pos_ == pos_tag)
     ]
 
     features: Dict[Text, FeatureAnalysis] = dict()
 
-    for verb in verbs:
-        morph_analysis: MorphAnalysis = verb.morph
+    for filtered_word in filtered_words:
+        morph_analysis: MorphAnalysis = filtered_word.morph
         for feature, value in morph_analysis.to_dict().items():
             if not feature in features:
                 features[feature] = FeatureAnalysis(
@@ -74,6 +87,38 @@ def analyze_morphological_features(doc: Doc, pos_tag: Text) -> Dict[Text, Featur
         if feature_analysis.distribution
     }
 
+
+def extract_word_families_by_lemma(doc: Doc) -> Dict[Text, Dict]:
+    word_families: Dict[Text, Set[Token]] = dict()
+
+    for token in doc:
+        lemma: Text = token.lemma_
+
+        if lemma and lemma.isalpha():
+            if not lemma in word_families:
+                word_families[lemma] = set()
+
+            word_families[lemma].add(token)
+
+    return {
+        lemma: {
+            f"{str(token.text).lower()} ({token.pos_})": {
+                "Part of Speech (PoS) Tag": (
+                    f"{token.pos_} ({TAGS_GLOSSARY[token.pos_]})"
+                    if token.pos_ else None
+                ),
+                "Fine-grained Part of Speech (PoS) Tag": (
+                    f"{token.tag_} ({TAGS_GLOSSARY[token.tag_]})"
+                    if token.tag_ else None
+                )
+            }
+            for token in word_family
+        }
+        for lemma, word_family in word_families.items()
+        if word_family
+    }
+
+
 TITLE = "Linguistic Analysis"
 ICON = "📊"
 
@@ -88,8 +133,9 @@ streamlit.subheader("Analyzers and Features")
 
 ANALYZERS_COLUMN, POS_TAGS_COLUMN = streamlit.columns(2)
 
-ANALYZERS: Dict[Text, Callable[[Doc, Text], Dict[Text, FeatureAnalysis]]] = {
-    "Morphological Features": analyze_morphological_features
+ANALYZERS: Dict[Text, Callable[[Doc, Text], Dict[Text, Union[FeatureAnalysis, Dict]]]] = {
+    "Morphological Features": analyze_morphological_features,
+    "Word Families (by Lemma)": extract_word_families_by_lemma
 }
 
 with ANALYZERS_COLUMN:
@@ -105,21 +151,18 @@ SELECTED_ANALYZERS: Dict[Text, Callable[[Doc, Text], Dict[Text, FeatureAnalysis]
     for name in SELECTED_ANALYZER_NAMES
 }
 
-POS_TAGS: List[Text] = [  # https://universaldependencies.org/u/pos/index.html
-    ("ADJ", "Adjective"),
-    ("ADV", "Adverb"),
-    ("INTJ", "Interjection"),
-    ("NOUN", "Noun"),
-    ("PROPN", "Proper Noun"),
-    ("VERB", "Verb")
-]
-
 with POS_TAGS_COLUMN:
-    SELECTED_POS_TAGS: List[Tuple[Text, Text]] = streamlit.multiselect(
-        "Select Part of Speech (PoS) Tags",
-        options=POS_TAGS,
-        format_func=lambda option: f'{option[1]} ("{option[0]}")'
-    )
+    if "Morphological Features" in SELECTED_ANALYZERS:
+        if streamlit.checkbox("Use all PoS Tags"):
+            SELECTED_POS_TAGS = POS_TAGS
+        else:
+            SELECTED_POS_TAGS: List[Tuple[Text, Text]] = streamlit.multiselect(
+                "Select Part of Speech (PoS) Tags",
+                options=POS_TAGS,
+                format_func=lambda option: f'{option[1]} ("{option[0]}")'
+            )
+    else:
+        SELECTED_POS_TAGS = POS_TAGS
 
 streamlit.subheader("Language and Language Model")
 
@@ -219,40 +262,66 @@ for section_name, section in stqdm(
         section.features = dict()
 
     for analyzer_name, analyzer in SELECTED_ANALYZERS.items():
-        section.features.update(
-            {
-                pos_tag: analyzer(section.doc, pos_tag)
-                for pos_tag, pos_tag_description in SELECTED_POS_TAGS
-            }
-        )
+        if analyzer_name == "Morphological Features":
+            section.features.update(
+                {
+                    pos_tag: analyzer(section.doc, pos_tag)
+                    for pos_tag, pos_tag_description in SELECTED_POS_TAGS
+                }
+            )
+        elif analyzer_name == "Word Families (by Lemma)":
+            section.features["Word Families"] = analyzer(section.doc)
 
     with streamlit.expander(
         f"Feature Analysis of Section '{section.title}'",
         expanded=False
     ):
-        streamlit.write(
-            {
-                pos_tag: {
-                    feature_name: feature_analysis.distribution
-                    for feature_name, feature_analysis in pos_tag_features.items()
-                }
-                for pos_tag, pos_tag_features in section.features.items()
-            }
-        )
-
-        streamlit.subheader("Relative Distribution")
+        if "Word Families (by Lemma)" in SELECTED_ANALYZERS:
+            WORD_FAMILY_SIZE_THRESHOLD: PositiveInt = streamlit.number_input(
+                "Only show word families of this size or higher",
+                min_value=1,
+                value=2
+            )
+        else:
+            WORD_FAMILY_SIZE_THRESHOLD: PositiveInt = 1
 
         streamlit.write(
             {
-                pos_tag: {
-                    feature_name: {
-                        key: (
-                            count / sum(feature_analysis.distribution.values())
-                        )
-                        for key, count in feature_analysis.distribution.items()
+                feature_group_key: (
+                    {
+                        feature_name: feature_analysis.distribution
+                        for feature_name, feature_analysis in feature_group_features.items()
                     }
-                    for feature_name, feature_analysis in pos_tag_features.items()
-                }
-                for pos_tag, pos_tag_features in section.features.items()
+                    if not feature_group_key == "Word Families"
+                    else {
+                        word_family_lemma: word_family
+                        for word_family_lemma, word_family in feature_group_features.items()
+                        if len(word_family) >= WORD_FAMILY_SIZE_THRESHOLD
+                    }
+                )
+                for feature_group_key, feature_group_features in section.features.items()
             }
         )
+
+        if "Morphological Features" in SELECTED_ANALYZERS:
+
+            streamlit.subheader("Relative Distribution")
+
+            streamlit.write(
+                {
+                    feature_group: {
+                        feature_name: {
+                            key: (
+                                round(
+                                    count / sum(feature_analysis.distribution.values()),
+                                    ndigits=2
+                                )
+                            )
+                            for key, count in feature_analysis.distribution.items()
+                        }
+                        for feature_name, feature_analysis in feature_group_features.items()
+                    }
+                    for feature_group, feature_group_features in section.features.items()
+                    if feature_group != "Word Families"
+                }
+            )
