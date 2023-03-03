@@ -2,7 +2,7 @@
 
 A **Linguistic Analysis App** for analyzing certain linguistic aspects made in _Streamlit_ using _spaCy_
 
-## [✨ Interactive Web Application](https://share.streamlit.io/schorfma/linguistic-analysis-app/main/linguistic_analysis.py)
+## [✨ Interactive Web Application](https://linguistic-features.streamlit.app)
 
 ## Analysis
 
