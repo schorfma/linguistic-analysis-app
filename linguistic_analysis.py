@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Text, Tuple, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic.error_wrappers import ValidationError
 from pydantic.types import PositiveInt
 import srsly
@@ -24,7 +24,7 @@ class FeatureAnalysis(BaseModel):
 
 class Section(BaseModel):
     title: Text
-    text: Text
+    text: Text = Field(max_length=200_000)
     doc: Optional[Doc] = None
     features: Optional[
         Dict[
@@ -170,8 +170,8 @@ LANGUAGE_COLUMN, LANGUAGE_MODEL_COLUMN = streamlit.columns(2)
 
 MODEL_NAMES_BY_LANGUAGE: Dict[Text, List[Text]] = {
     "English": [
-        "en_core_web_md"#,
-        #"en_core_web_trf"
+        "en_core_web_md",
+        # "en_core_web_trf",
     ]
 }
 with LANGUAGE_COLUMN:
@@ -280,7 +280,8 @@ for section_name, section in stqdm(
             WORD_FAMILY_SIZE_THRESHOLD: PositiveInt = streamlit.number_input(
                 "Only show word families of this size or higher",
                 min_value=1,
-                value=2
+                value=2,
+                key=f"word_family_size_threshold_{section_name}"
             )
         else:
             WORD_FAMILY_SIZE_THRESHOLD: PositiveInt = 1
